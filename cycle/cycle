@@ -1,0 +1,220 @@
+#!/bin/bash
+
+#
+# cycle - Reload an application unity on target environment.
+#
+
+# Copyright (c) 2017 Leon Waldman - leon@waldman.io
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+# Functions
+header() {
+  echo
+  echo "cycle - Reload an application unity on target environment."
+}
+
+usage() {
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle <module> <settings> <env_selector> <app_selector>"
+  echo
+  echo "Available modules:"
+  echo "  kube"
+  echo "  ecs"
+}
+
+usage_kube() {
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle kube <settings> <namespace_name> <deployment_name>"
+  echo
+  echo "Available settings:"
+  list_kube_settings
+}
+
+list_kube_settings(){
+  for i in $(ls ~/.cycle | grep ^kube | sed 's/kube\-//g; s/\.conf//g'); do
+    echo "  $i"
+  done
+}
+
+usage_kube_settings() {
+  settings=$1
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle kube $settings <namespace_name> <deployment_name>"
+  echo
+  echo "Available namespaces:"
+  list_kube_namespaces $settings
+}
+
+list_kube_namespaces() {
+  settings=$1
+  source ~/.cycle/kube-${settings}.conf
+  for i in $($kubectl --context $kube_context get namespaces | grep -v ^NAME | \
+    awk '{print $1}'); do
+    echo "  $i"
+  done
+}
+
+usage_kube_namespaces() {
+  settings=$1
+  namespace=$2
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle kube $settings $namespace <deployment_name>"
+  echo
+  echo "Available deployments:"
+  list_kube_deployments $settings $namespace
+}
+
+list_kube_deployments() {
+  settings=$1
+  namespace=$2
+  source ~/.cycle/kube-${settings}.conf
+  for i in $($kubectl --context $kube_context --namespace $namespace get deployments | \
+    grep -v ^NAME | awk '{print $1}'); do
+    echo "  $i"
+  done
+}
+
+execute_kube_deployment(){
+  settings=$1
+  namespace=$2
+  deployment=$3
+  source ~/.cycle/kube-${settings}.conf
+  $kubectl --context $kube_context --namespace $namespace set env deployment $deployment \
+    LAST_DEPLOY=$(date +%s)
+}
+
+usage_ecs() {
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle ecs <settings> <ecs_cluster_name> <service_name>"
+  echo
+  echo "Available ECS settings:"
+  list_ecs_settings
+}
+
+list_ecs_settings(){
+  for i in $(ls ~/.cycle | grep ^ecs | sed 's/ecs\-//g; s/\.conf//g'); do
+    echo "  $i"
+  done
+}
+
+usage_ecs_settings() {
+  settings=$1
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle ecs $settings <ecs_cluster_name> <service_name>"
+  echo
+  echo "Available ECS clusters:"
+  list_ecs_clusters $settings
+}
+
+list_ecs_clusters() {
+  settings=$1
+  source ~/.cycle/ecs-${settings}.conf
+  for i in $(aws --profile $aws_profile --region $aws_region ecs list-clusters --output text | \
+    awk '{print $2}' | awk -F ':' '{print $6}' | awk -F '/' '{print $2}'); do
+    echo "  $i"
+  done
+}
+
+usage_ecs_clusters() {
+  settings=$1
+  cluster=$2
+  header
+  echo
+  echo "Usage:"
+  echo "  cycle ecs $settings $cluster <service_name>"
+  echo
+  echo "Available ECS services:"
+  list_ecs_services $settings $cluster
+}
+
+list_ecs_services() {
+  settings=$1
+  cluster=$2
+  source ~/.cycle/ecs-${settings}.conf
+  for i in $(aws --profile $aws_profile --region $aws_region ecs list-services \
+    --cluster $cluster --output text | awk '{print $2}' | awk -F ':' '{print $6}' | \
+    awk -F '/' '{print $2}'); do
+    echo "  $i"
+  done
+}
+
+execute_ecs_deployment() {
+  settings=$1
+  cluster=$2
+  service=$3
+  source ~/.cycle/ecs-${settings}.conf
+  aws --profile $aws_profile --region $aws_region ecs update-service --cluster $cluster \
+    --service $service --force-new-deployment --output text | grep -v "EVENTS"
+}
+
+# Action! o/
+if [ $# == 0 ]; then
+  usage
+  exit 1
+fi
+
+if [ $# == 1 ]; then
+  case $1 in
+    kube) usage_kube ;;
+    ecs)  usage_ecs ;;
+    *)    echo "Module not implemented!"
+  esac
+  exit 1
+fi
+
+if [ $# == 2 ]; then
+  case $1 in
+    kube) usage_kube_settings $2 ;;
+    ecs)  usage_ecs_settings $2 ;;
+    *)    echo "Module not implemented!"
+  esac
+  exit 1
+fi
+
+if [ $# == 3 ]; then
+  case $1 in
+    kube) usage_kube_namespaces $2 $3 ;;
+    ecs)  usage_ecs_clusters $2 $3 ;;
+    *)    echo "Module not implemented!"
+  esac
+  exit 1
+fi
+
+if [ $# == 4 ]; then
+  case $1 in
+    kube) execute_kube_deployment $2 $3 $4;;
+    ecs)  execute_ecs_deployment $2 $3 $4;;
+    *)    echo "Module not implemented!"
+  esac
+fi
+
+# vi: ft=sh
