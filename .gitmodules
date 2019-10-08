@@ -1,0 +1,3 @@
+[submodule "cycle"]
+	path = cycle
+	url = https://github.com/waldman/cycle
